@@ -1,0 +1,26 @@
+{
+  "auto_complete": false,
+  "color_scheme": "Packages/Color Scheme - Legacy/Sunburst.tmTheme",
+  "ensure_newline_at_eof_on_save": true,
+  "folder_exclude_patterns":
+  [
+    ".svn",
+    ".git",
+    ".hg",
+    "CVS",
+    "tmp"
+  ],
+  "font_size": 14,
+  "ignored_packages":
+  [
+    "Vintage"
+  ],
+  "itg_sidebar_tree_small": true,
+  "itg_small_tabs": true,
+  "scroll_past_end": true,
+  "tab_completion": false,
+  "tab_size": 2,
+  "theme": "itg.flat.dark.sublime-theme",
+  "translate_tabs_to_spaces": true,
+  "trim_trailing_white_space_on_save": true
+}
