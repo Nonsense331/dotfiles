@@ -2,6 +2,16 @@
 old_ref=$1
 new_ref=$2
 
+colors[0]='\033[1;32m'
+colors[1]='\033[0;35m'
+colors[2]='\033[0;33m'
+colors[3]='\033[1;33m'
+colors[4]='\033[0;34m'
+
+no_color='\033[0m'
+
+rand_color=$[ $RANDOM % 5 ]
+
 if [ -z "$old_ref" ]; then
   old_ref=`git rev-parse ORIG_HEAD`
 fi
@@ -15,13 +25,29 @@ files_changed=`git diff $old_ref $new_ref --name-status`
 # CHECK IF WE NEED TO DO A BUNDLE
 bundle_changed=`echo "$files_changed" | grep $'M\tGemfile.lock'`
 if [ ! -z "$bundle_changed" ]; then
-  echo "Your Gemfile.lock has changed, running bundle"
+  arr[0]="There are changes to Gemfile.lock, but don't worry - I've got you covered. Bundling now ..."
+  arr[1]="'Bundling' isn't just an old-timey tradition, it's also what I'm doing right now!"
+  arr[2]="Gemfile.lock has changed. COMMENCE RUNNING BUNDLE in 5 ... 4 ... 3 ... 2 ... 1!"
+
+  rand=$[ $RANDOM % 3 ]
+  echo "-----------------------------------------"
+  echo -e ${colors[$rand_color]}${arr[$rand]}${no_color}
+  echo "-----------------------------------------"
+
   bundle
 fi
 
 migrations=`git diff --name-status $old_ref $new_ref -- db/migrate | grep '^[AD]'`
 if [ ! -z "$migrations" ]; then
-  echo "Running migrations!"
+  arr[0]="New database structure like what! Time to run migrations ..."
+  arr[1]="Call me a crane for the way I'm handling these migrations!"
+  arr[2]="Making sure the ol' db is up-to-date: it's migration time"
+  rand=$[ $RANDOM % 3 ]
+
+  echo "-----------------------------------------"
+  echo -e ${colors[$rand_color]}${arr[$rand]}${no_color}
+  echo "-----------------------------------------"
+
   for migration in $migrations
   do
     # CHECK THE MIGRATION TYPE AND CONTINUE TO THE FILENAME
