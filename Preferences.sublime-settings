@@ -1,5 +1,30 @@
 {
+  "added_words":
+  [
+    "json"
+  ],
   "auto_complete": false,
+  "binary_file_patterns":
+  [
+    "*.jpg",
+    "*.jpeg",
+    "*.png",
+    "*.gif",
+    "*.ttf",
+    "*.tga",
+    "*.dds",
+    "*.ico",
+    "*.eot",
+    "*.pdf",
+    "*.swf",
+    "*.jar",
+    "*.zip",
+    "storage/",
+    "node_modules/",
+    "public/system/",
+    "db/backups/",
+    "log/"
+  ],
   "color_scheme": "Packages/Color Scheme - Legacy/Sunburst.tmTheme",
   "ensure_newline_at_eof_on_save": true,
   "folder_exclude_patterns":
@@ -10,10 +35,11 @@
     "CVS",
     "tmp"
   ],
-  "font_size": 14,
+  "font_face": "Iosevka",
+  "font_size": 17,
   "ignored_packages":
   [
-    "Vintage"
+    "Vintage",
   ],
   "itg_sidebar_tree_small": true,
   "itg_small_tabs": true,
@@ -22,5 +48,5 @@
   "tab_size": 2,
   "theme": "itg.flat.dark.sublime-theme",
   "translate_tabs_to_spaces": true,
-  "trim_trailing_white_space_on_save": true
+  "trim_trailing_white_space_on_save": true,
 }
