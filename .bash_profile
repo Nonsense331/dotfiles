@@ -1,3 +1,4 @@
+export PATH="/opt/homebrew/bin:$PATH"
 export ANDROID_HOME=/opt/android-sdk-macosx
 export ANDROID_SDK_ROOT=/opt/android-sdk-macosx
 
@@ -32,6 +33,7 @@ alias git_delete_merged='git branch --merged | egrep -v "(^\*|main|master|dev|qa
 alias bundle_update_patch="bundle update \$(bundle list | awk '\$1 ~ /^\*/ {print \$2}' | grep -v bundler) --patch"
 
 export PATH=$PATH:/opt/tenforward
+export PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
 
 [[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
 
