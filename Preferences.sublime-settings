@@ -3,7 +3,14 @@
   [
     "json"
   ],
-  "auto_complete": false,
+  "auto_complete": true,
+  "auto_complete_use_index": true,
+  "auto_complete_preserve_order": "strict",
+  "auto_complete_commit_on_tab": false,
+  "tab_completion": false,
+  "native_auto_complete": false,
+  "auto_complete_include_snippets_when_typing": false,
+  "auto_complete_include_snippets": false,
   "binary_file_patterns":
   [
     "*.jpg",
@@ -44,7 +51,6 @@
   "itg_sidebar_tree_small": true,
   "itg_small_tabs": true,
   "scroll_past_end": true,
-  "tab_completion": false,
   "tab_size": 2,
   "theme": "itg.flat.dark.sublime-theme",
   "translate_tabs_to_spaces": true,

@@ -22,6 +22,8 @@ fi
 
 files_changed=`git diff $old_ref $new_ref --name-status`
 
+echo "OLD $old_ref NEW $new_ref"
+
 # CHECK IF WE NEED TO DO A BUNDLE
 bundle_changed=`echo "$files_changed" | grep $'M\tGemfile.lock'`
 if [ ! -z "$bundle_changed" ]; then
@@ -34,7 +36,11 @@ if [ ! -z "$bundle_changed" ]; then
   echo -e ${colors[$rand_color]}${arr[$rand]}${no_color}
   echo "-----------------------------------------"
 
-  bundle
+  if [[ -z "${DOCKER}" ]]; then
+    bundle
+  else
+    docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev bundle
+  fi
 fi
 
 migrations=`git diff --name-status $old_ref $new_ref -- db/migrate | grep '^[AD]'`
@@ -61,7 +67,7 @@ if [ ! -z "$migrations" ]; then
 
     # BUILD THE MIGRATION COMMAND FROM THE VERSION AND TYPE
     version=`echo "$migration" | cut -d'_' -f1 | cut -d'/' -f3`
-    migrate_command="ActiveRecord::Migration.new.migration_context.migrations.detect {|d| d.version == $version}.migrate(:$migration_type) rescue ActiveRecord::Migrator.migrations('db/migrate').detect {|d| d.version == $version}.migrate(:$migration_type) rescue nil"
+    migrate_command="ActiveRecord::Base.connection.pool.migration_context.migrations.detect {|d| d.version == $version}.migrate(:$migration_type) rescue ActiveRecord::Migration.new.migration_context.migrations.detect {|d| d.version == $version}.migrate(:$migration_type) rescue ActiveRecord::Migrator.migrations('db/migrate').detect {|d| d.version == $version}.migrate(:$migration_type) rescue nil"
 
     # APPEND OR PREPREND TO THE COMMAND LIST DEPENDING ON MIGRATION TYPE
     if [[ $migration_type == "down" ]]; then
@@ -77,7 +83,11 @@ if [ ! -z "$migrations" ]; then
   done
 
   # RUN THE MIGRATIONS (AND TEST PREPARE)
-  bundle exec rails r "$migrate_commands"
+  if [[ -z "${DOCKER}" ]]; then
+    bundle exec rails r "$migrate_command"
+  else
+    docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev bin/rails r "$migrate_commands"
+  fi
 
   # CLEAN UP DOWN MIGRATIONS
   if [ ! -z "$migration_cleanup" ]; then
