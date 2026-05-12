@@ -34,8 +34,6 @@ alias arch_windows="arch -x86_64 /bin/bash"
 export PATH=$PATH:/opt/tenforward
 export PATH=$PATH:/Applications/Sublime\ Text.app/Contents/SharedSupport/bin
 
-[[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
-
 bind 'set bell-style none'
 export PATH="/usr/local/opt/curl/bin:$PATH"
 
@@ -46,6 +44,8 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
 
 eval "$(direnv hook bash)"
+
+[[ -s "$HOME/.rvm/scripts/rvm" ]] && source "$HOME/.rvm/scripts/rvm" # Load RVM into a shell session *as a function*
 
 # Created by `pipx` on 2024-05-24 14:35:29
 export PATH="$PATH:/Users/brett/.local/bin"

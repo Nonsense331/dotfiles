@@ -12,6 +12,15 @@ no_color='\033[0m'
 
 rand_color=$[ $RANDOM % 5 ]
 
+# Auto-detect docker mode: honor DOCKER env var, or detect a running devcontainer
+if [ -n "${DOCKER}" ]; then
+  use_docker=true
+elif [ -f compose.yml ] && [ -f .devcontainer/server.yml ] && docker compose -f compose.yml -f .devcontainer/server.yml ps --status running 2>/dev/null | grep -q dev; then
+  use_docker=true
+else
+  use_docker=false
+fi
+
 if [ -z "$old_ref" ]; then
   old_ref=`git rev-parse ORIG_HEAD`
 fi
@@ -19,6 +28,9 @@ fi
 if [ -z "$new_ref" ]; then
   new_ref=`git rev-parse HEAD`
 fi
+
+# Build list of mainline/release refs (used to skip rollback of non-branch-specific migrations)
+mainline_refs="origin/main $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*')"
 
 files_changed=`git diff $old_ref $new_ref --name-status`
 
@@ -36,10 +48,10 @@ if [ ! -z "$bundle_changed" ]; then
   echo -e ${colors[$rand_color]}${arr[$rand]}${no_color}
   echo "-----------------------------------------"
 
-  if [[ -z "${DOCKER}" ]]; then
-    bundle
-  else
+  if [[ "$use_docker" == "true" ]]; then
     docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev bundle
+  else
+    bundle
   fi
 fi
 
@@ -65,28 +77,61 @@ if [ ! -z "$migrations" ]; then
       continue
     fi
 
+    # Skip rollback of migrations that exist on mainline/release branches
+    if [[ $migration_type == "down" ]]; then
+      on_mainline=false
+      for ref in $mainline_refs; do
+        if git cat-file -e "$ref:$migration" 2>/dev/null; then
+          on_mainline=true
+          break
+        fi
+      done
+      if [[ "$on_mainline" == "true" ]]; then
+        continue
+      fi
+    fi
+
     # BUILD THE MIGRATION COMMAND FROM THE VERSION AND TYPE
     version=`echo "$migration" | cut -d'_' -f1 | cut -d'/' -f3`
-    migrate_command="ActiveRecord::Base.connection.pool.migration_context.migrations.detect {|d| d.version == $version}.migrate(:$migration_type) rescue ActiveRecord::Migration.new.migration_context.migrations.detect {|d| d.version == $version}.migrate(:$migration_type) rescue ActiveRecord::Migrator.migrations('db/migrate').detect {|d| d.version == $version}.migrate(:$migration_type) rescue nil"
+    find_migration="m = ActiveRecord::Base.connection.pool.migration_context.migrations.detect {|d| d.version == $version}"
+    find_migration="$find_migration rescue ActiveRecord::Migration.new.migration_context.migrations.detect {|d| d.version == $version}"
+    find_migration="$find_migration rescue ActiveRecord::Migrator.migrations('db/migrate').detect {|d| d.version == $version}"
 
     # APPEND OR PREPREND TO THE COMMAND LIST DEPENDING ON MIGRATION TYPE
     if [[ $migration_type == "down" ]]; then
       # CHECKOUT DOWN MIGRATION AND SAVE PATH FOR CLEANUP
       git checkout "$old_ref" -- "$migration"
       migration_cleanup="$migration_cleanup $migration"
-      migrate_command="$migrate_command;ActiveRecord::Base.connection.exec_query(\"DELETE FROM schema_migrations WHERE version = '$version'\") rescue nil"
+
+      migrate_command="begin"
+      migrate_command="$migrate_command; $find_migration"
+      migrate_command="$migrate_command; m.migrate(:down)"
+      migrate_command="$migrate_command; ActiveRecord::Base.connection.exec_query(\"DELETE FROM schema_migrations WHERE version = '$version'\")"
+      migrate_command="$migrate_command; rescue => e"
+      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version DOWN FAILED: #{e.message}\nThe schema_migrations entry was NOT removed.\nYou may need to manually fix the database before retrying.\n#{'='*60}\n\""
+      migrate_command="$migrate_command; end"
+
       migrate_commands="$migrate_command;$migrate_commands"
     else
-      migrate_command="$migrate_command;ActiveRecord::Base.connection.exec_query(\"INSERT INTO schema_migrations (version) VALUES ('$version') ON CONFLICT (version) DO NOTHING\") rescue nil"
+      migrate_command="unless ActiveRecord::Base.connection.select_value(\"SELECT 1 FROM schema_migrations WHERE version = '$version'\")"
+      migrate_command="$migrate_command; begin"
+      migrate_command="$migrate_command; $find_migration"
+      migrate_command="$migrate_command; m.migrate(:up)"
+      migrate_command="$migrate_command; ActiveRecord::Base.connection.exec_query(\"INSERT INTO schema_migrations (version) VALUES ('$version') ON CONFLICT (version) DO NOTHING\")"
+      migrate_command="$migrate_command; rescue => e"
+      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version UP FAILED: #{e.message}\nThe schema_migrations entry was NOT added.\nYou may need to manually run: rails db:migrate VERSION=$version\n#{'='*60}\n\""
+      migrate_command="$migrate_command; end"
+      migrate_command="$migrate_command; end"
+
       migrate_commands="$migrate_commands;$migrate_command"
     fi
   done
 
   # RUN THE MIGRATIONS (AND TEST PREPARE)
-  if [[ -z "${DOCKER}" ]]; then
-    bundle exec rails r "$migrate_command"
-  else
+  if [[ "$use_docker" == "true" ]]; then
     docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev bin/rails r "$migrate_commands"
+  else
+    bundle exec rails r "$migrate_commands"
   fi
 
   # CLEAN UP DOWN MIGRATIONS

@@ -1,5 +1,9 @@
 # dotfiles
-Put `git_rails` in `/usr/local/bin/git_rails`
+Symlink `git_rails` to `/usr/local/bin/git_rails`:
+
+```bash
+sudo ln -sf ~/dotfiles/git_rails /usr/local/bin/git_rails
+```
 
 Put the hooks in `~/.git_template/hooks`
 
@@ -9,4 +13,8 @@ Now it will auto run migrations and bundle for you when you change branches!
 
 ## Debugging
 
-If you get an error like `.git/hooks/post-checkout: line 7: /usr/local/bin/git_rails: Permission denied`, make sure your `/usr/local/bin/git_rails` has execute permissions. You can `cd` to the folder and run `chmod +x git_rails`.
+If you get an error like `.git/hooks/post-checkout: line 7: /usr/local/bin/git_rails: Permission denied`, make sure `git_rails` has execute permissions:
+
+```bash
+chmod +x ~/dotfiles/git_rails
+```
