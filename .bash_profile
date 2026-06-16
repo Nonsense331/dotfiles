@@ -49,3 +49,9 @@ eval "$(direnv hook bash)"
 
 # Created by `pipx` on 2024-05-24 14:35:29
 export PATH="$PATH:/Users/brett/.local/bin"
+export PATH="$PATH:/Applications/RubyMine.app/Contents/MacOS"
+
+# Added by LM Studio CLI (lms)
+export PATH="$PATH:/Users/brett/.lmstudio/bin"
+# End of LM Studio CLI section
+
