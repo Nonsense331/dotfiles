@@ -1,0 +1,48 @@
+#!/bin/bash
+# rebuild_db
+#
+# Rebuilds the development database from db/structure.sql while keeping its data,
+# so the physical column order matches structure.sql again after the branch-switch
+# hook has rolled migrations down and back up.
+#
+# Run from the repo root. Stop the server and any consoles first, or the drop fails.
+
+set -eu
+
+dump_file=tmp/rebuild_db.dump
+
+# Auto-detect docker mode: honor DOCKER env var, or detect a running devcontainer
+if [ -n "${DOCKER-}" ]; then
+  use_docker=true
+elif [ -f compose.yml ] && [ -f .devcontainer/server.yml ] && docker compose -f compose.yml -f .devcontainer/server.yml ps --status running 2>/dev/null | grep -q dev; then
+  use_docker=true
+else
+  use_docker=false
+fi
+
+run() {
+  if [[ "$use_docker" == "true" ]]; then
+    docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev "$@"
+  else
+    "$@"
+  fi
+}
+
+database=`run bin/rails runner 'print ActiveRecord::Base.connection_db_config.database' 2>/dev/null | tail -1`
+
+echo "Dumping data from $database to $dump_file ..."
+run pg_dump --data-only --format=custom \
+  --exclude-table-data=schema_migrations --exclude-table-data=ar_internal_metadata \
+  --file=$dump_file "$database"
+
+echo "Realigning db/structure.sql ..."
+realign_structure
+
+echo "Recreating $database from db/structure.sql ..."
+run bin/rails db:drop db:create db:schema:load
+
+echo "Restoring data ..."
+run pg_restore --data-only --disable-triggers --dbname="$database" $dump_file
+
+rm $dump_file
+echo "Done. $database now matches db/structure.sql."

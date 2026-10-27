@@ -1,0 +1,24 @@
+#!/bin/bash
+# Realign cosmetic column-reorder churn in db/structure.sql before committing.
+# Only runs when structure.sql is actually staged. If it changes anything it
+# aborts the commit (leaving the fix UNSTAGED) so you can review, then
+# `git add db/structure.sql` and commit again.
+
+structure_file="db/structure.sql"
+
+if ! git diff --cached --name-only | grep -qx "$structure_file"; then
+  exit 0
+fi
+
+if ! command -v realign_structure >/dev/null 2>&1; then
+  exit 0
+fi
+
+if ! realign_structure -e "$structure_file"; then
+  echo
+  echo "pre-commit: realign_structure rewrote $structure_file (unstaged)."
+  echo "Review the change, then:  git add $structure_file  &&  recommit."
+  exit 1
+fi
+
+exit 0

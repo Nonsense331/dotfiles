@@ -1,0 +1,127 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# realign_structure
+#
+# Strips cosmetic column-reorder churn from a Rails structure.sql dump.
+#
+# Postgres appends re-added columns to the end of a table physically, so when a
+# branch-switch hook rolls a migration down and back up, columns end up in a
+# different physical order than the canonical structure.sql. A later schema dump
+# then shows pure-reorder churn that gets mixed in with legit changes (e.g. the
+# schema_migrations list), so `git checkout` can't cleanly drop it.
+#
+# This script compares the working-tree structure.sql against HEAD. For any
+# CREATE TABLE block whose column *set* is unchanged but whose *order* differs,
+# it restores HEAD's ordering. Genuine changes (new/dropped columns, altered
+# defaults, the schema_migrations list, indexes, etc.) are left untouched.
+#
+# Usage:
+#   realign_structure [path]        # default: db/structure.sql, applies in place
+#   realign_structure -n            # dry run, report only
+#   realign_structure --check       # exit 1 if reorder churn exists (no changes)
+#   realign_structure -e            # apply, but exit 1 if it changed anything
+#                                   #   (for the pre-commit hook: aborts the
+#                                   #    commit so the fix gets reviewed/staged)
+#
+# Symlink into PATH:
+#   sudo ln -sf ~/dotfiles/realign_structure /usr/local/bin/realign_structure
+
+require "open3"
+
+dry_run = false
+check = false
+error_on_change = false
+path = nil
+
+ARGV.each do |arg|
+  case arg
+  when "-n", "--dry-run"       then dry_run = true
+  when "--check"               then check = true
+  when "-e", "--error-on-change" then error_on_change = true
+  when "-h", "--help"
+    puts File.read(__FILE__)[/\A(?:#.*\n)+/].gsub(/^# ?/, "")
+    exit 0
+  else
+    path = arg
+  end
+end
+
+path ||= "db/structure.sql"
+
+unless File.exist?(path)
+  warn "realign_structure: #{path} not found (run from the repo root)"
+  exit 2
+end
+
+head_content, status = Open3.capture2e("git", "show", "HEAD:#{path}")
+unless status.success?
+  warn "realign_structure: could not read HEAD:#{path}\n#{head_content}"
+  exit 2
+end
+
+working_content = File.read(path)
+
+# Matches a full `CREATE TABLE ... (\n ... \n);` block. Captures the qualified
+# table name and the inner column-definition lines.
+TABLE_RE = /^CREATE TABLE (\S+) \(\n(.*?)^\);$/m
+
+# Normalize the inner column lines into a comparable set: strip indentation and
+# trailing commas, drop blanks. Two blocks with the same set but different order
+# are a pure reorder.
+def column_set(inner)
+  inner.lines.map { |l| l.strip.chomp(",") }.reject(&:empty?).sort
+end
+
+head_blocks = {}
+head_content.scan(TABLE_RE) do
+  head_blocks[$1] = { full: $~[0], inner: $2 }
+end
+
+realigned = []
+
+new_content = working_content.gsub(TABLE_RE) do |match|
+  name = $1
+  inner = $2
+  head = head_blocks[name]
+
+  # No HEAD counterpart (new table) -> leave as is.
+  next match unless head
+
+  # Different column set -> a genuine change; don't touch ordering.
+  next match unless column_set(inner) == column_set(head[:inner])
+
+  # Same set, same order -> already aligned.
+  next match if inner == head[:inner]
+
+  # Same set, different order -> pure reorder churn. Restore HEAD's block.
+  realigned << name
+  head[:full]
+end
+
+if realigned.empty?
+  puts "realign_structure: no column-reorder churn in #{path}"
+  exit 0
+end
+
+label = ->(n) { n.sub(/\Apublic\./, "") }
+
+if check
+  warn "realign_structure: #{realigned.size} table(s) have reorder churn:"
+  realigned.each { |n| warn "  - #{label.call(n)}" }
+  exit 1
+end
+
+if dry_run
+  puts "realign_structure: would realign #{realigned.size} table(s) in #{path}:"
+  realigned.each { |n| puts "  - #{label.call(n)}" }
+  exit 0
+end
+
+File.write(path, new_content)
+puts "realign_structure: realigned #{realigned.size} table(s) in #{path}:"
+realigned.each { |n| puts "  - #{label.call(n)}" }
+
+# In hook/CI mode, exit non-zero so the commit aborts and the realigned (but
+# unstaged) file gets a human review before being committed.
+exit 1 if error_on_change

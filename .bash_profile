@@ -1,3 +1,7 @@
+# The following lines were added by Docker Desktop to add commands to your PATH.
+export PATH="$PATH:/Users/brett/.docker/bin"
+# End of Docker Desktop section.
+
 export PATH="/opt/homebrew/bin:$PATH"
 export ANDROID_HOME=/Users/brett/Library/Android/sdk
 export ANDROID_SDK_ROOT=/Users/brett/Library/Android/sdk
@@ -54,4 +58,3 @@ export PATH="$PATH:/Applications/RubyMine.app/Contents/MacOS"
 # Added by LM Studio CLI (lms)
 export PATH="$PATH:/Users/brett/.lmstudio/bin"
 # End of LM Studio CLI section
-

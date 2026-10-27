@@ -29,15 +29,55 @@ if [ -z "$new_ref" ]; then
   new_ref=`git rev-parse HEAD`
 fi
 
-# Build list of mainline/release refs (used to skip rollback of non-branch-specific migrations)
-mainline_refs="origin/main $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*')"
+# Determine the base ref the new branch will be rebased onto (origin/main or an
+# origin/release/* branch). For each candidate we find the merge-base with new_ref
+# and pick the tightest base: first minimize how far the branch runs beyond the
+# merge-base (most recent common point), then break ties by how far the ref runs
+# beyond it (closest base). Migrations present on this base are skipped during
+# rollback, since a rebase would just re-apply them.
+base_ref=""
+base_behind=""
+base_ahead=""
+for ref in origin/main $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*'); do
+  mb=$(git merge-base "$new_ref" "$ref" 2>/dev/null) || continue
+  behind=$(git rev-list --count "$mb..$new_ref" 2>/dev/null) || continue
+  ahead=$(git rev-list --count "$mb..$ref" 2>/dev/null) || continue
+  if [ -z "$base_ref" ] || [ "$behind" -lt "$base_behind" ] || { [ "$behind" -eq "$base_behind" ] && [ "$ahead" -lt "$base_ahead" ]; }; then
+    base_behind=$behind
+    base_ahead=$ahead
+    base_ref=$ref
+  fi
+done
+if [ -z "$base_ref" ]; then
+  base_ref="origin/main"
+fi
+echo "Base ref detected: $base_ref"
 
 files_changed=`git diff $old_ref $new_ref --name-status`
 
 echo "OLD $old_ref NEW $new_ref"
 
+# CHECK IF THE DEV CONTAINER NEEDS A NEW RUBY
+ruby_changed=""
+if [[ "$use_docker" == "true" ]]; then
+  ruby_version=`cat .ruby-version`
+  container_ruby_version=`docker compose -f compose.yml -f .devcontainer/server.yml exec -T dev ruby -e 'print RUBY_VERSION'`
+  if [ "$container_ruby_version" != "$ruby_version" ]; then
+    ruby_changed=true
+
+    echo "-----------------------------------------"
+    echo -e "${colors[$rand_color]}Ruby went from $container_ruby_version to $ruby_version. Rebuilding the dev container ...${no_color}"
+    echo "-----------------------------------------"
+
+    docker run --rm --quiet -e WHOAMI=`whoami` -v .:/setup -w /setup "ruby:$ruby_version-bookworm" .devcontainer/setup_env
+    docker compose -f compose.yml -f .devcontainer/server.yml build --quiet dev
+    docker compose -f compose.yml -f .devcontainer/server.yml up -d dev
+  fi
+fi
+
 # CHECK IF WE NEED TO DO A BUNDLE
 bundle_changed=`echo "$files_changed" | grep $'M\tGemfile.lock'`
+bundle_changed="$bundle_changed$ruby_changed"
 if [ ! -z "$bundle_changed" ]; then
   arr[0]="There are changes to Gemfile.lock, but don't worry - I've got you covered. Bundling now ..."
   arr[1]="'Bundling' isn't just an old-timey tradition, it's also what I'm doing right now!"
@@ -77,16 +117,10 @@ if [ ! -z "$migrations" ]; then
       continue
     fi
 
-    # Skip rollback of migrations that exist on mainline/release branches
+    # Skip rollback of migrations that exist on the branch's base ref —
+    # they'll just be re-applied when the branch is rebased onto its base.
     if [[ $migration_type == "down" ]]; then
-      on_mainline=false
-      for ref in $mainline_refs; do
-        if git cat-file -e "$ref:$migration" 2>/dev/null; then
-          on_mainline=true
-          break
-        fi
-      done
-      if [[ "$on_mainline" == "true" ]]; then
+      if git cat-file -e "$base_ref:$migration" 2>/dev/null; then
         continue
       fi
     fi
@@ -105,10 +139,10 @@ if [ ! -z "$migrations" ]; then
 
       migrate_command="begin"
       migrate_command="$migrate_command; $find_migration"
-      migrate_command="$migrate_command; m.migrate(:down)"
-      migrate_command="$migrate_command; ActiveRecord::Base.connection.exec_query(\"DELETE FROM schema_migrations WHERE version = '$version'\")"
+      migrate_command="$migrate_command; run = -> { m.migrate(:down); ActiveRecord::Base.connection.exec_query(\"DELETE FROM schema_migrations WHERE version = '$version'\") }"
+      migrate_command="$migrate_command; m.disable_ddl_transaction ? run.call : ActiveRecord::Base.transaction { run.call }"
       migrate_command="$migrate_command; rescue => e"
-      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version DOWN FAILED: #{e.message}\nThe schema_migrations entry was NOT removed.\nYou may need to manually fix the database before retrying.\n#{'='*60}\n\""
+      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version DOWN FAILED: #{e.message}\nIt ran in a transaction, so the database is unchanged and the\nschema_migrations entry was NOT removed.\n#{'='*60}\n\""
       migrate_command="$migrate_command; end"
 
       migrate_commands="$migrate_command;$migrate_commands"
@@ -116,16 +150,25 @@ if [ ! -z "$migrations" ]; then
       migrate_command="unless ActiveRecord::Base.connection.select_value(\"SELECT 1 FROM schema_migrations WHERE version = '$version'\")"
       migrate_command="$migrate_command; begin"
       migrate_command="$migrate_command; $find_migration"
-      migrate_command="$migrate_command; m.migrate(:up)"
-      migrate_command="$migrate_command; ActiveRecord::Base.connection.exec_query(\"INSERT INTO schema_migrations (version) VALUES ('$version') ON CONFLICT (version) DO NOTHING\")"
+      migrate_command="$migrate_command; run = -> { m.migrate(:up); ActiveRecord::Base.connection.exec_query(\"INSERT INTO schema_migrations (version) VALUES ('$version') ON CONFLICT (version) DO NOTHING\") }"
+      migrate_command="$migrate_command; m.disable_ddl_transaction ? run.call : ActiveRecord::Base.transaction { run.call }"
       migrate_command="$migrate_command; rescue => e"
-      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version UP FAILED: #{e.message}\nThe schema_migrations entry was NOT added.\nYou may need to manually run: rails db:migrate VERSION=$version\n#{'='*60}\n\""
+      migrate_command="$migrate_command; STDERR.puts \"\n#{'='*60}\n⚠ MIGRATION $version UP FAILED: #{e.message}\nIt ran in a transaction, so the database is unchanged and the\nschema_migrations entry was NOT added.\nRetry with: rails db:migrate VERSION=$version\n#{'='*60}\n\""
       migrate_command="$migrate_command; end"
       migrate_command="$migrate_command; end"
 
       migrate_commands="$migrate_commands;$migrate_command"
     fi
   done
+
+  # CHECKOUT DELETED VIEW DEFINITIONS THE DOWN MIGRATIONS MAY REVERT TO
+  if [ ! -z "$migration_cleanup" ]; then
+    deleted_views=`git diff --name-status $old_ref $new_ref -- db/views | grep '^D' | cut -f2`
+    if [ ! -z "$deleted_views" ]; then
+      git checkout "$old_ref" -- $deleted_views
+      migration_cleanup="$migration_cleanup $deleted_views"
+    fi
+  fi
 
   # RUN THE MIGRATIONS (AND TEST PREPARE)
   if [[ "$use_docker" == "true" ]]; then
