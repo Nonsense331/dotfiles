@@ -29,7 +29,14 @@ alias dc='docker compose'
 alias k='kubectl'
 
 alias git_hooks='cp -r ~/.git_template/hooks/ ./.git/hooks/'
-alias git_delete_merged='git branch --merged | egrep -v "(^\*|main|master|dev|qa|production)" | xargs git branch -d'
+git_delete_merged() {
+  local base=$(git symbolic-ref --short refs/remotes/origin/HEAD)
+  local current=$(git branch --show-current)
+  {
+    git branch --format='%(refname:short)' --merged "$base"
+    git log "$base" --merges --format=%s | sed -n "s/^Merge branch '\([^']*\)' into .*/\1/p" | grep -Fxf <(git branch --format='%(refname:short)')
+  } | sort -u | egrep -vx "($current|main|master|dev|qa|production)" | xargs git branch -D
+}
 
 alias bundle_update_patch="bundle update \$(bundle list | awk '\$1 ~ /^\*/ {print \$2}' | grep -v bundler) --patch"
 

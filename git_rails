@@ -21,6 +21,19 @@ else
   use_docker=false
 fi
 
+# RVM only switches rubies on cd, so pick up the checked-out .ruby-version / .ruby-gemset
+if [[ "$use_docker" == "false" ]] && [ -f .ruby-version ] && [ -s "$HOME/.rvm/scripts/rvm" ]; then
+  rvm_target=`cat .ruby-version`
+  if [ -f .ruby-gemset ]; then
+    rvm_target="$rvm_target@`cat .ruby-gemset`"
+  fi
+  if [ "${GEM_HOME##*/}" != "ruby-${rvm_target#ruby-}" ]; then
+    rvm_silence_path_mismatch_check_flag=1
+    source "$HOME/.rvm/scripts/rvm"
+    rvm use "$rvm_target"
+  fi
+fi
+
 if [ -z "$old_ref" ]; then
   old_ref=`git rev-parse ORIG_HEAD`
 fi
@@ -169,6 +182,10 @@ if [ ! -z "$migrations" ]; then
       migration_cleanup="$migration_cleanup $deleted_views"
     fi
   fi
+
+  # Down migrations from a newer branch may declare a Migration[x.y] the older Rails doesn't know
+  compat_patch="ActiveRecord::Migration::Compatibility.singleton_class.prepend(Module.new { def find(version); super; rescue ArgumentError; ActiveRecord::Migration::Current; end }) if defined?(ActiveRecord::Migration::Compatibility)"
+  migrate_commands="$compat_patch;$migrate_commands"
 
   # RUN THE MIGRATIONS (AND TEST PREPARE)
   if [[ "$use_docker" == "true" ]]; then

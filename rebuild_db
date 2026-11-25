@@ -44,5 +44,17 @@ run bin/rails db:drop db:create db:schema:load
 echo "Restoring data ..."
 run pg_restore --data-only --disable-triggers --dbname="$database" $dump_file
 
+echo "Refreshing materialized views ..."
+run psql --quiet --dbname="$database" -c "
+  DO \$\$
+  DECLARE view record;
+  BEGIN
+    FOR view IN SELECT schemaname, matviewname FROM pg_matviews LOOP
+      EXECUTE format('REFRESH MATERIALIZED VIEW %I.%I', view.schemaname, view.matviewname);
+    END LOOP;
+  END
+  \$\$;
+"
+
 rm $dump_file
 echo "Done. $database now matches db/structure.sql."
